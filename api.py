@@ -124,3 +124,19 @@ def _store_profile(user, company, role):
         updates["account_type"] = role
     if updates:
         frappe.db.set_value("User", user.name, updates, update_modified=False)
+
+
+@frappe.whitelist(allow_guest=True)
+def google_login_url(redirect_to="/app"):
+    """Return the Google authorize URL for the custom login page.
+
+    Calling login_via_google directly raises a TypeError, because that
+    function is the *callback* and expects a code and state from Google.
+    This builds the URL that starts the flow instead.
+    """
+    from frappe.utils.oauth import get_oauth2_authorize_url
+
+    if not frappe.db.get_value("Social Login Key", "google", "enable_social_login"):
+        frappe.throw(_("Google sign-in isn't set up yet."))
+
+    return {"url": get_oauth2_authorize_url("google", redirect_to)}
