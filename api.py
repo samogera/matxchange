@@ -66,10 +66,12 @@ def register(full_name, email, password=None, phone=None, company=None, role=Non
         "enabled": 1,
     })
     user.flags.ignore_permissions = True
-    user.flags.ignore_password_policy = True
     user.insert()
 
     if password:
+        # Password policy is deliberately NOT bypassed here. Frappe checks the
+        # password against System Settings > Minimum Password Score and throws
+        # a readable message the signup form surfaces to the user.
         user.new_password = password
         user.save(ignore_permissions=True)
 
