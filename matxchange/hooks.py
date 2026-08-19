@@ -268,3 +268,30 @@ fixtures = [
     {"dt": "Email Template", "filters": [["name", "in", ["welcome-matxchange", "payment-confirmed", "transaction-submitted"]]]},
     {"dt": "Workspace", "filters": [["name", "in", ["MatXchange"]]]},
 ]
+
+# Add this to the bottom of matxchange/hooks.py
+#
+# Frappe serves its own login and signup pages at /login and /signup, and
+# redirects any logged-out visitor there. These rules send those visitors
+# to the Matxchange pages instead, so nobody ever sees Frappe's version.
+#
+# WARNING: once this is live, https://app.matxchange.co.ke/login no longer
+# works as an escape hatch. If your custom login page ever breaks you would
+# be locked out of the desk. Two ways back in:
+#   1. Comment these lines out and run: bench restart
+#   2. Reset the admin password from the server:
+#      bench --site matxchange.co.ke set-admin-password <newpassword>
+#
+# Test that matxchange.co.ke/Login.dc.html logs you in successfully BEFORE
+# adding this.
+
+website_redirects = [
+    {
+        "source": "/login",
+        "target": "https://matxchange.co.ke/Login.dc.html",
+    },
+    {
+        "source": "/signup",
+        "target": "https://matxchange.co.ke/Signup.dc.html",
+    },
+]
