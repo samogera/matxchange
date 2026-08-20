@@ -363,3 +363,15 @@ def complete_profile(phone=None, company=None, role=None):
     frappe.db.commit()
 
     return {"status": "ok", "home": "/"}
+
+
+@frappe.whitelist(allow_guest=True)
+def csrf_token():
+    """Hand the static site a CSRF token for the current session.
+
+    Frappe skips CSRF checks for Guests but enforces them the moment a
+    session cookie exists. Since these pages are served from a different
+    origin, they have no way to read Frappe's boot data - so they fetch a
+    token here and send it back as X-Frappe-CSRF-Token.
+    """
+    return {"token": frappe.sessions.get_csrf_token()}
