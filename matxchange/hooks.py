@@ -302,21 +302,20 @@ fixtures = [
 #   2. Reset the admin password from the server:
 #      bench --site matxchange.co.ke set-admin-password <newpassword>
 #
-# Test that matxchange.co.ke/Login.dc.html logs you in successfully BEFORE
+# Test that matxchange.co.ke/login logs you in successfully BEFORE
 # adding this.
 
 website_redirects = [
     {
         "source": "/login",
-        "target": "https://matxchange.co.ke/Login.dc.html",
+        "target": "https://matxchange.co.ke/login",
     },
     {
         "source": "/signup",
-        "target": "https://matxchange.co.ke/Signup.dc.html",
+        "target": "https://matxchange.co.ke/signup",
     },
     {
         "source": "/complete-profile",
-        "target": "https://matxchange.co.ke/CompleteProfile.dc.html",
+        "target": "https://matxchange.co.ke/complete-profile",
     },
-]
 ]
