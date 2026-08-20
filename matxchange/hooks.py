@@ -291,6 +291,10 @@ fixtures = [
 # redirects any logged-out visitor there. These rules send those visitors
 # to the Matxchange pages instead, so nobody ever sees Frappe's version.
 #
+# /complete-profile is where Google returns a newly created user. Google
+# gives us only a name and email, so that page collects the phone number,
+# company and account type the normal signup wizard asks for.
+#
 # WARNING: once this is live, https://app.matxchange.co.ke/login no longer
 # works as an escape hatch. If your custom login page ever breaks you would
 # be locked out of the desk. Two ways back in:
@@ -310,4 +314,9 @@ website_redirects = [
         "source": "/signup",
         "target": "https://matxchange.co.ke/Signup.dc.html",
     },
+    {
+        "source": "/complete-profile",
+        "target": "https://matxchange.co.ke/CompleteProfile.dc.html",
+    },
+]
 ]
