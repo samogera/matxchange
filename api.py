@@ -14,6 +14,33 @@ ALLOWED_ROLES = {
 }
 
 
+def normalize_phone(raw):
+    """Store Kenyan numbers in one canonical form: +2547XXXXXXXX.
+
+    Frappe matches mobile logins against User.mobile_no exactly, so a number
+    saved as "0712 345 678" can never be logged in with as "+254712345678".
+    Everything is normalised on the way in, and the login page applies the
+    same rule on the way out.
+    """
+    if not raw:
+        return None
+
+    digits = "".join(ch for ch in str(raw) if ch.isdigit())
+    if not digits:
+        return None
+
+    if digits.startswith("254"):
+        digits = digits[3:]
+    elif digits.startswith("0"):
+        digits = digits[1:]
+
+    if len(digits) != 9:
+        # Not a Kenyan mobile - keep what the user typed, stripped of spaces.
+        return "+" + digits if str(raw).strip().startswith("+") else str(raw).strip()
+
+    return "+254" + digits
+
+
 @frappe.whitelist(allow_guest=True)
 def register(full_name, email, password=None, phone=None, company=None, role=None):
     """Create a Matxchange account from the public signup form.
@@ -93,12 +120,12 @@ def register(full_name, email, password=None, phone=None, company=None, role=Non
     }
 
 
-def _check_rate_limit():
+def _check_rate_limit(prefix="signup_attempts", limit=5, message=None):
     ip = frappe.local.request_ip
-    key = f"signup_attempts:{ip}"
+    key = f"{prefix}:{ip}"
     count = frappe.cache().get_value(key) or 0
-    if int(count) >= 5:
-        frappe.throw(_("Too many signup attempts. Please try again in an hour."))
+    if int(count) >= limit:
+        frappe.throw(message or _("Too many attempts. Please try again in an hour."))
     frappe.cache().set_value(key, int(count) + 1, expires_in_sec=3600)
 
 
@@ -140,3 +167,141 @@ def google_login_url(redirect_to="/app"):
         frappe.throw(_("Google sign-in isn't set up yet."))
 
     return {"url": get_oauth2_authorize_url("google", redirect_to)}
+
+
+# Where landing-page enquiries are emailed.
+CONTACT_RECIPIENT = "samuel@matxchange.co.ke"
+
+
+@frappe.whitelist(allow_guest=True)
+def submit_contact(name, email, message, company=None, role=None):
+    """Store a landing-page enquiry and email the team.
+
+    Creates a Communication so enquiries are searchable in the desk rather
+    than living only in an inbox.
+    """
+    _check_rate_limit(
+        prefix="contact_attempts",
+        limit=5,
+        message=_("You've sent several messages already. Please try again later."),
+    )
+
+    name = escape_html((name or "").strip())
+    email = (email or "").strip().lower()
+    message = (message or "").strip()
+    company = escape_html((company or "").strip())
+    role = escape_html((role or "").strip())
+
+    if not name:
+        frappe.throw(_("Please enter your name."))
+    if not message:
+        frappe.throw(_("Please tell us how we can help."))
+
+    validate_email_address(email, throw=True)
+
+    body = "<br>".join(
+        filter(
+            None,
+            [
+                f"<b>Name:</b> {name}",
+                f"<b>Email:</b> {email}",
+                f"<b>Company:</b> {company}" if company else None,
+                f"<b>Role:</b> {role}" if role else None,
+                "",
+                f"<b>Message:</b><br>{frappe.utils.escape_html(message)}",
+            ],
+        )
+    )
+
+    comm = frappe.get_doc(
+        {
+            "doctype": "Communication",
+            "communication_type": "Communication",
+            "communication_medium": "Email",
+            "sent_or_received": "Received",
+            "subject": f"Website enquiry from {name}",
+            "content": body,
+            "sender": email,
+            "sender_full_name": name,
+            "recipients": CONTACT_RECIPIENT,
+            "status": "Open",
+        }
+    )
+    comm.flags.ignore_permissions = True
+    comm.insert(ignore_permissions=True)
+
+    try:
+        frappe.sendmail(
+            recipients=[CONTACT_RECIPIENT],
+            subject=f"Website enquiry from {name}",
+            message=body,
+            reply_to=email,
+        )
+    except Exception:
+        # The enquiry is saved either way; a mail failure shouldn't lose it.
+        frappe.log_error(title="Contact form email failed")
+
+    frappe.db.commit()
+
+    return {"status": "ok", "message": _("Thanks, we'll be in touch shortly.")}
+
+
+@frappe.whitelist(allow_guest=True)
+def email_login_link(email):
+    """Send a passwordless login link.
+
+    Wraps Frappe's own send_login_link so the frontend has one stable
+    endpoint, and so a disabled setting or an unknown address produces a
+    predictable answer instead of a raw traceback.
+    """
+    email = (email or "").strip().lower()
+    validate_email_address(email, throw=True)
+
+    _check_rate_limit(
+        prefix="login_link",
+        limit=5,
+        message=_("Too many login links requested. Please try again later."),
+    )
+
+    if not frappe.db.get_single_value("System Settings", "login_with_email_link"):
+        frappe.throw(_("Login by email link isn't switched on for this site."))
+
+    # Unknown addresses return success on purpose: confirming which emails
+    # have accounts would let anyone enumerate your users.
+    if not frappe.db.exists("User", {"email": email, "enabled": 1}):
+        return {"status": "ok"}
+
+    try:
+        from frappe.www.login import send_login_link as _send
+    except ImportError:
+        frappe.throw(_("This Frappe version doesn't support email link login."))
+
+    _send(email)
+    return {"status": "ok"}
+
+
+@frappe.whitelist(allow_guest=True)
+def request_password_reset(email):
+    """Send a password reset link.
+
+    Frappe's reset_password throws "User not found" for unknown addresses,
+    which leaks whether an account exists. This returns the same answer
+    either way.
+    """
+    email = (email or "").strip().lower()
+    validate_email_address(email, throw=True)
+
+    _check_rate_limit(
+        prefix="reset_attempts",
+        limit=5,
+        message=_("Too many reset requests. Please try again later."),
+    )
+
+    user = frappe.db.get_value("User", {"email": email, "enabled": 1}, "name")
+    if user:
+        try:
+            frappe.get_doc("User", user).reset_password(send_email=True)
+        except Exception:
+            frappe.log_error(title="Password reset email failed")
+
+    return {"status": "ok"}
