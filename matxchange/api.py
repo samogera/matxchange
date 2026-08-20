@@ -305,3 +305,61 @@ def request_password_reset(email):
             frappe.log_error(title="Password reset email failed")
 
     return {"status": "ok"}
+
+
+@frappe.whitelist(allow_guest=True)
+def profile_status():
+    """Tell the completion page who is logged in and what's still missing.
+
+    Google gives us a name and email but nothing else, so a user who signed
+    up that way arrives with no role, company or phone.
+    """
+    if frappe.session.user == "Guest":
+        return {"logged_in": False}
+
+    user = frappe.get_doc("User", frappe.session.user)
+    user_roles = {r.role for r in (user.roles or [])}
+    matched = user_roles & ALLOWED_ROLES
+
+    return {
+        "logged_in": True,
+        "email": user.name,
+        "full_name": user.full_name or "",
+        "first_name": user.first_name or "",
+        "phone": user.mobile_no or "",
+        "role": next(iter(matched), ""),
+        "needs_profile": not (matched and user.mobile_no),
+    }
+
+
+@frappe.whitelist()
+def complete_profile(phone=None, company=None, role=None):
+    """Attach role, company and phone to an account created via Google.
+
+    Deliberately NOT allow_guest: this only ever edits the logged-in user,
+    so nobody can use it to modify someone else's record.
+    """
+    if frappe.session.user == "Guest":
+        frappe.throw(_("Please log in first."), frappe.PermissionError)
+
+    role = (role or "").strip()
+    if not role:
+        frappe.throw(_("Please choose an account type."))
+    if role not in ALLOWED_ROLES:
+        frappe.throw(_("That account type isn't available."))
+
+    phone = normalize_phone(phone)
+    if not phone:
+        frappe.throw(_("Please enter your phone number."))
+
+    user = frappe.get_doc("User", frappe.session.user)
+    user.mobile_no = phone
+    user.flags.ignore_permissions = True
+    user.save(ignore_permissions=True)
+
+    _assign_role(user, role)
+    _store_profile(user, company, role)
+
+    frappe.db.commit()
+
+    return {"status": "ok", "home": "/"}
